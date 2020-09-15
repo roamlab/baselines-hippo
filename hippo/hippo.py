@@ -214,12 +214,10 @@ def batch(env, model, gamma, lam, paths):
         path.advs = []
         n = len(path)
         for i in range(n):
-            obs, action = flatten_obs(path.obs[i]), path.actions[i]
-            _obs = np.repeat(obs, env.num_envs, axis=0)
-            _action = np.repeat(action, env.num_envs, axis=0)
-            value, neglogpac = model.value(_obs)[0], model.act_model.neglogp_action(_obs, action_input=_action)[0]
-            path.values.append(value)
-            path.neglogpacs.append(neglogpac)
+            vec_obs = np.repeat(flatten_obs(path.obs[i]), env.num_envs, axis=0)
+            vec_action = np.repeat(path.actions[i], env.num_envs, axis=0)
+            path.values.append(model.value(vec_obs)[0])
+            path.neglogpacs.append(model.act_model.neglogp_action(vec_obs, action_input=vec_action)[0])
         # GAE
         rewards = path.rewards
         values = path.values
