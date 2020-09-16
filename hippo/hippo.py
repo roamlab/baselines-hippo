@@ -15,6 +15,8 @@ from baselines.ppo2.runner import sf01
 from hippo.runner import Runner
 from hippo.runner import flatten_obs
 from hippo.hindsight import hindsight
+from hippo.replay_buffer import ReplayBuffer
+from hippo.path import random_subpath
 
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
@@ -71,8 +73,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     **network_kwargs:                 keyword arguments to the policy / network builder. See baselines.common/policies.py/build_policy and arguments to a particular type of network
                                       For instance, 'mlp' network architecture has arguments num_hidden and num_layers.
-
-
 
     '''
 
@@ -131,6 +131,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
     if eval_env is not None:
         eval_epinfobuf = deque(maxlen=100)
 
+    # Instantiate the replay buffer
+    replay_buffer = ReplayBuffer(capactity=2*nenvs*nsteps)
+
     # Start total timer
     tfirststart = time.perf_counter()
     her_timesteps = 0
@@ -152,12 +155,21 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         if eval_env is not None:
             eval_epinfobuf.extend('epinfos')
 
+        hindsight_prob = 0.5
+        for path in paths: 
+            replay_buffer.insert(path)
+        nsamples = 0
         batch_paths = []
-        for path in paths:
+        while nsamples < nbatch:
+            path = replay_buffer.sample()
+            subpath = random_subpath(path)
+            # Apply hindsight
+            if np.random.uniform() < hindsight_prob:
+                if len(subpath) == len(path):
+                    subpath.pop_step()
+                subpath = hindsight(path, reward_fn)
             batch_paths.append(path)
-            hindsight_path = hindsight(path, reward_fn)
-            batch_paths.append(hindsight_path)
-            
+
         obs, returns, masks, actions, values, neglogpacs = batch(env, model, gamma, lam, batch_paths)
         _nbatch = (len(obs) // nbatch_train) * nbatch_train
         her_timesteps += _nbatch

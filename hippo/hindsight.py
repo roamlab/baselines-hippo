@@ -12,13 +12,6 @@ def reward_fn(env_fn):
 
 def hindsight(path, reward_fn):
 
-    # If the last transition corresponds to the end of episode, the final obs is after reset   
-    # Hence the final transition is removed as the achieved goal is arbitrary.
-    path = deepcopy(path)
-    if path.done is True:
-        path.pop_step()
-        path.done = False
-
     for obs in path.obs:
         obs['desired_goal'] = path.achieved_goal
     return path
@@ -28,9 +21,7 @@ def hindsight(path, reward_fn):
         info = {'action': action, 'observation': obs['observation']}
         path.rewards[t] = compute_reward(obs['achieved_goal'], obs['desired_goal'], info)
 
-    path.done = True
-
-    return path 
+    return path
 
 def split_path(path, num_pieces):
     """ Split path into equal pieces """
@@ -128,7 +119,7 @@ class FinalAchievedGoal(Hindsight):
         for path in paths:
             path = self.make_hindsight_path(path)
             hindsight_paths.append(path)
-        return hindsight_paths    
+        return hindsight_paths
 
 
 class SplitEqual(Hindsight):
