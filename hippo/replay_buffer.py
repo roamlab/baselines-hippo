@@ -10,7 +10,7 @@ class ReplayBuffer:
         # Note: capacity is measured in terms of number of transtions (not paths)
 
     def insert(self, path):
-        self.paths.extend(path)
+        self.paths.append(path)
         # prune if overflow occurs
         self.fill += len(path)
         while self.fill > self.capacity:

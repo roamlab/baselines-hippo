@@ -27,5 +27,15 @@ if __name__ == '__main__':
 
     nenvs = 4
     env_fns = [make_env for _ in range(4)]
-    env = VecMonitor(SubprocVecEnv(env_fns))
-    learn(network='mlp', env=env, total_timesteps=int(1e6), log_interval=1, reward_fn=reward_fn(env_fns[0]))
+    env = VecMonitor(DummyVecEnv(env_fns))
+    learn(
+        network='mlp', 
+        env=env, 
+        total_timesteps=int(1e6),
+        nsteps=2048, 
+        nbatch=2*nenvs*2048, 
+        log_interval=1, 
+        reward_fn=reward_fn(env_fns[0]),
+        buffer_capacity=2*nenvs*2048,
+        hindsight = 0.5,
+        )

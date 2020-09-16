@@ -10,7 +10,7 @@ def reward_fn(env_fn):
     del dummy
     return rew_fn
 
-def hindsight(path, reward_fn):
+def apply_hindsight(path, reward_fn):
 
     for obs in path.obs:
         obs['desired_goal'] = path.achieved_goal

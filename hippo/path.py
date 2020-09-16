@@ -1,3 +1,5 @@
+import random
+
 class Path:
     """ contains lists of the obs, actions and rewards for the steps of the path """
     def __init__(self):
@@ -25,24 +27,23 @@ class Path:
     def achieved_goal(self):
         return self.obs[-1]['achieved_goal'].copy()
 
-def subpath(path, tstart, tstop):
+def subpath(path, tstart, length):
 
     # Note: The returned path does not contain the step resulting from the action at the stop timestep.
     # Length of the path returned is stop - start.
 
-    assert tstop > tstart, 'stop timestep must be larger than start timestep'
     subpath = Path()
-    for t in range(tstart, tstop):
-        subpath.append_step((path.obs[t], path.actions[t], path.rewards[t]))
-    subpath.obs.append(path.obs[tstop])
     subpath.done = True
-
+    for t in range(tstart, tstart+length):
+        subpath.append_step((path.obs[t], path.actions[t], path.rewards[t]))
+    subpath.obs.append(path.obs[tstart+length])
+    
     return subpath
 
 def random_subpath(path):
-    l = random.randrange(len(path))
-    tstart = np.randrange(len(path) - l + 1)
-    return subpath(tstart, tstart+l)
+    length = random.randrange(len(path) + 1)
+    tstart = random.randrange(len(path) + 1 - length)
+    return subpath(path, tstart, length)
 
 def splitpath(path, nsplits):
     """ Split path into equal pieces """
