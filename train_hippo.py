@@ -4,6 +4,9 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.vec_monitor import VecMonitor
 from hippo.hippo import learn
+from hippo.hindsight import reward_fn
+
+import numpy as np
 
 ENV = "FetchReach-v1"
 
@@ -25,4 +28,4 @@ if __name__ == '__main__':
     nenvs = 4
     env_fns = [make_env for _ in range(4)]
     env = VecMonitor(SubprocVecEnv(env_fns))
-    learn(network='mlp', env=env, total_timesteps=int(1e5), log_interval=1)
+    learn(network='mlp', env=env, total_timesteps=int(1e6), log_interval=1, reward_fn=reward_fn(env_fns[0]))
