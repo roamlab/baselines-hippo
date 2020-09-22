@@ -1,12 +1,13 @@
-class Path:
-    """ Contains lists of the obs, actions and rewards for the steps of the path """
+import random
 
+class Path:
+    """ contains lists of the obs, actions and rewards for the steps of the path """
     def __init__(self):
         self.obs = []
         self.actions = [] # len(obs) must be len(actions) + 1
         self.rewards = []
         self.done = False
-        self.update_no = None # policy that was used in sampling this path
+        self.iteration = None # iter of PPO when sampled  
 
     def __len__(self):
         return len(self.actions)
@@ -26,9 +27,27 @@ class Path:
     def achieved_goal(self):
         return self.obs[-1]['achieved_goal'].copy()
 
-def split_path(path, num_pieces):
+def subpath(path, tstart, length):
+
+    # Note: The returned path does not contain the step resulting from the action at the stop timestep.
+    # Length of the path returned is stop - start.
+
+    subpath = Path()
+    subpath.done = True
+    for t in range(tstart, tstart+length):
+        subpath.append_step((path.obs[t], path.actions[t], path.rewards[t]))
+    subpath.obs.append(path.obs[tstart+length])
+    
+    return subpath
+
+def random_subpath(path):
+    length = random.randrange(len(path) + 1)
+    tstart = random.randrange(len(path) + 1 - length)
+    return subpath(path, tstart, length)
+
+def splitpath(path, nsplits):
     """ Split path into equal pieces """
-    T = len(path)//num_pieces
+    T = len(path)//nsplits
     subpaths = []
     t = 0
     subpath = Path()
@@ -41,20 +60,4 @@ def split_path(path, num_pieces):
             subpath = Path()
         t += 1
     return subpaths
-
-def get_subpath(path, tstart, tstop):
-
-    """
-    Return a sub path from 'start' timestep to 'stop' timestep. The returned path does not
-    contain the step resulting from the action at the stop timestep. Therefore, the length of
-    the path returned is stop - start.
-
-    """
-
-    assert tstop > tstart, 'stop timestep must be larger than start timestep'
-    subpath = Path()
-    for t in range(tstart, tstop):
-        subpath.append_step((path.obs[t], path.actions[t], path.rewards[t]))
-    subpath.obs.append(path.obs[tstop])
-    return subpath
 
