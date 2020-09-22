@@ -14,11 +14,12 @@ from baselines.ppo2.ppo2 import constfn, safemean
 from baselines.ppo2.runner import sf01
 from hippo.runner import Runner
 from hippo.runner import flatten_obs
+from hippo.hindsight import hindsight
 
 def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
-            save_interval=0, load_path=None, model_fn=None, buffer_age=0, exp_ratio=0, hs_strategy='none',
+            save_interval=0, load_path=None, model_fn=None, reward_fn,
           **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -144,14 +145,20 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         cliprangenow = cliprange(frac)
 
         # Collect new trajectories here
-        paths,  epinfos = runner.run()   #pylint: disable=E0632
+        paths, epinfos = runner.run()   #pylint: disable=E0632
         if eval_env is not None:
             eval_paths,  eval_epinfos = eval_runner.run() #pylint: disable=E0632
         epinfobuf.extend(epinfos)
         if eval_env is not None:
             eval_epinfobuf.extend('epinfos')
 
-        obs, returns, masks, actions, values, neglogpacs = batch(env, model, gamma, lam, paths)
+        batch_paths = []
+        for path in paths:
+            batch_paths.append(path)
+            hindsight_path = hindsight(path, reward_fn)
+            batch_paths.append(hindsight_path)
+            
+        obs, returns, masks, actions, values, neglogpacs = batch(env, model, gamma, lam, batch_paths)
         _nbatch = (len(obs) // nbatch_train) * nbatch_train
         her_timesteps += _nbatch
 
@@ -214,12 +221,10 @@ def batch(env, model, gamma, lam, paths):
         path.advs = []
         n = len(path)
         for i in range(n):
-            obs, action = flatten_obs(path.obs[i]), path.actions[i]
-            _obs = np.repeat(obs, env.num_envs, axis=0)
-            _action = np.repeat(action, env.num_envs, axis=0)
-            value, neglogpac = model.value(_obs)[0], model.act_model.neglogp_action(_obs, action_input=_action)[0]
-            path.values.append(value)
-            path.neglogpacs.append(neglogpac)
+            vec_obs = np.repeat(flatten_obs(path.obs[i]), env.num_envs, axis=0)
+            vec_action = np.repeat(path.actions[i], env.num_envs, axis=0)
+            path.values.append(model.value(vec_obs)[0])
+            path.neglogpacs.append(model.act_model.neglogp_action(vec_obs, action_input=vec_action)[0])
         # GAE
         rewards = path.rewards
         values = path.values

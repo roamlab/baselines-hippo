@@ -2,12 +2,12 @@ class Path:
     """ Contains lists of the obs, actions and rewards for the steps of the path """
 
     def __init__(self):
-        self.obs = []  
-        self.actions = [] # len(obs) must be len(actions) + 1 
+        self.obs = []
+        self.actions = [] # len(obs) must be len(actions) + 1
         self.rewards = []
         self.done = False
         self.update_no = None # policy that was used in sampling this path
-        
+
     def __len__(self):
         return len(self.actions)
 
@@ -21,8 +21,9 @@ class Path:
 
     def pop_step(self):
         return self.obs.pop(), self.actions.pop(), self.rewards.pop()
-    
-    def get_final_achieved_goal(self):
+
+    @property
+    def achieved_goal(self):
         return self.obs[-1]['achieved_goal'].copy()
 
 def split_path(path, num_pieces):
@@ -42,12 +43,12 @@ def split_path(path, num_pieces):
     return subpaths
 
 def get_subpath(path, tstart, tstop):
-    
-    """  
-    Return a sub path from 'start' timestep to 'stop' timestep. The returned path does not 
-    contain the step resulting from the action at the stop timestep. Therefore, the length of 
-    the path returned is stop - start. 
-    
+
+    """
+    Return a sub path from 'start' timestep to 'stop' timestep. The returned path does not
+    contain the step resulting from the action at the stop timestep. Therefore, the length of
+    the path returned is stop - start.
+
     """
 
     assert tstop > tstart, 'stop timestep must be larger than start timestep'
