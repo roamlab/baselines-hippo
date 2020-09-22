@@ -1,9 +1,12 @@
 import os
 import time
+import random
 import numpy as np
 import os.path as osp
+import itertools
 from baselines import logger
 from collections import deque
+from copy import copy, deepcopy
 from baselines.common import explained_variance, set_global_seeds
 from hippo.policy import build_policy
 try:
@@ -12,14 +15,36 @@ except ImportError:
     MPI = None
 from baselines.ppo2.ppo2 import constfn, safemean
 from baselines.ppo2.runner import sf01
-from hippo.runner import Runner
-from hippo.runner import flatten_obs
-from hippo.hindsight import hindsight
+from hippo.runner import Runner, flatten_obs
+from hippo.path import Path, random_subpath
+from hippo.replay_buffer import ReplayBuffer
 
-def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
+
+def extract_reward_fn(env_fn):
+    dummy = env_fn()
+    rew_fn = dummy.compute_reward
+    dummy.close()
+    del dummy
+    return rew_fn
+
+def apply_hindsight(path, reward_fn):
+    path = deepcopy(path)
+    for obs in path.obs:
+        obs['desired_goal'] = path.achieved_goal
+    return path
+
+    for t in range(len(path)):
+        action, obs = path.actions[t], path.obs[t+1]
+        info = {'action': action, 'observation': obs['observation']}
+        path.rewards[t] = compute_reward(obs['achieved_goal'], obs['desired_goal'], info)
+
+    return path
+
+def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=2048, nbatch=None, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
-            save_interval=0, load_path=None, model_fn=None, reward_fn,
+            save_interval=0, load_path=None, model_fn=None,
+            mode='hippo', use_buffer=False, buffer_capacity=None, hindsight=0.5, reward_fn,
           **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -37,8 +62,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                                       The environments produced by gym.make can be wrapped using baselines.common.vec_env.DummyVecEnv class.
 
 
-    nsteps: int                       number of steps of the vectorized environment per update (i.e. batch size is nsteps * nenv where
-                                      nenv is number of environment copies simulated in parallel)
+    nsteps: int                       number of steps of the vectorized environment per update 
+
+    nbatch: int                       batch size 
 
     total_timesteps: int              number of timesteps (i.e. number of actions taken in the environment)
 
@@ -69,10 +95,16 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     load_path: str                    path to load the model from
 
+    mode                              switch between 'ppo' or 'hippo', default 'hippo' 
+
+    buffer_capacity                   max number of steps stored in the replay buffer
+
+    hindsight                         fraction of the batch paths with hindsight
+
+    reward_fn                         reward fuction used to recompute reward under a new goal
+
     **network_kwargs:                 keyword arguments to the policy / network builder. See baselines.common/policies.py/build_policy and arguments to a particular type of network
                                       For instance, 'mlp' network architecture has arguments num_hidden and num_layers.
-
-
 
     '''
 
@@ -108,7 +140,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
     policy = build_policy(env, network, **network_kwargs)
 
     # Calculate the batch_size, nbatch is a rough approximation
-    nbatch = nenvs * nsteps
+    if nbatch is None: nbatch = nsteps * nenvs
     nbatch_train = nbatch // nminibatches
 
     # Instantiate the model object (that creates act_model and train_model)
@@ -131,6 +163,11 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
     if eval_env is not None:
         eval_epinfobuf = deque(maxlen=100)
 
+    # Instantiate the replay buffer
+    if use_buffer:
+        if buffer_capacity is None: buffer_capacity = nbatch
+        replay_buffer = ReplayBuffer(capacity=buffer_capacity)
+
     # Start total timer
     tfirststart = time.perf_counter()
     her_timesteps = 0
@@ -152,12 +189,36 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         if eval_env is not None:
             eval_epinfobuf.extend('epinfos')
 
-        batch_paths = []
-        for path in paths:
-            batch_paths.append(path)
-            hindsight_path = hindsight(path, reward_fn)
-            batch_paths.append(hindsight_path)
-            
+        if mode == 'hippo':
+            batch_paths = []
+            if use_buffer:
+                for path in paths: 
+                    replay_buffer.insert(path)
+                nsamples = 0
+                while nsamples < nbatch:
+                    path = replay_buffer.sample()
+                    subpath = random_subpath(path)
+                    if np.random.uniform() < hindsight:
+                        if len(subpath) == len(path):
+                            subpath.pop_step()
+                        subpath = apply_hindsight(path, reward_fn)
+                    batch_paths.append(subpath)
+                    nsamples += len(subpath)
+            else:
+                nsamples = 0
+                paths = itertools.cycle(paths)
+                while nsamples < nbatch:
+                    path = next(paths)
+                    subpath = random_subpath(path)
+                    if np.random.uniform() < hindsight:
+                        if len(subpath) == len(path):
+                            subpath.pop_step()
+                        subpath = apply_hindsight(path, reward_fn)
+                    batch_paths.append(subpath)
+                    nsamples += len(subpath)
+        elif mode == 'ppo':
+            batch_paths = paths
+
         obs, returns, masks, actions, values, neglogpacs = batch(env, model, gamma, lam, batch_paths)
         _nbatch = (len(obs) // nbatch_train) * nbatch_train
         her_timesteps += _nbatch
@@ -189,8 +250,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
             ev = explained_variance(values, returns)
             logger.logkv("serial_timesteps", update*nsteps)
             logger.logkv("nupdates", update)
-            logger.logkv("total_timesteps", update*nbatch)
-            logger.logkv("total_timesteps_her", her_timesteps)
+            logger.logkv("total_timesteps", update*nsteps*nenvs)
+            logger.logkv("total_steps", update*nbatch)
             logger.logkv("fps", fps)
             logger.logkv("explained_variance", float(ev))
             logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
