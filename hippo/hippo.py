@@ -1,9 +1,12 @@
 import os
 import time
+import random
 import numpy as np
 import os.path as osp
+import itertools
 from baselines import logger
 from collections import deque
+from copy import copy, deepcopy
 from baselines.common import explained_variance, set_global_seeds
 from hippo.policy import build_policy
 try:
@@ -12,12 +15,30 @@ except ImportError:
     MPI = None
 from baselines.ppo2.ppo2 import constfn, safemean
 from baselines.ppo2.runner import sf01
-from hippo.runner import Runner
-from hippo.runner import flatten_obs
-from hippo.hindsight import apply_hindsight
+from hippo.runner import Runner, flatten_obs
+from hippo.path import Path, random_subpath
 from hippo.replay_buffer import ReplayBuffer
-from hippo.path import random_subpath
-from itertools import cycle
+
+
+def extract_reward_fn(env_fn):
+    dummy = env_fn()
+    rew_fn = dummy.compute_reward
+    dummy.close()
+    del dummy
+    return rew_fn
+
+def apply_hindsight(path, reward_fn):
+    path = deepcopy(path)
+    for obs in path.obs:
+        obs['desired_goal'] = path.achieved_goal
+    return path
+
+    for t in range(len(path)):
+        action, obs = path.actions[t], path.obs[t+1]
+        info = {'action': action, 'observation': obs['observation']}
+        path.rewards[t] = compute_reward(obs['achieved_goal'], obs['desired_goal'], info)
+
+    return path
 
 def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=2048, nbatch=None, ent_coef=0.0, lr=3e-4,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
@@ -185,7 +206,7 @@ def learn(*, network, env, total_timesteps, eval_env=None, seed=None, nsteps=204
                     nsamples += len(subpath)
             else:
                 nsamples = 0
-                paths = cycle(paths)
+                paths = itertools.cycle(paths)
                 while nsamples < nbatch:
                     path = next(paths)
                     subpath = random_subpath(path)

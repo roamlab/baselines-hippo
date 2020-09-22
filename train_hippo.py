@@ -3,8 +3,7 @@ from gym.wrappers.flatten_observation import FlattenObservation
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.vec_monitor import VecMonitor
-from hippo.hippo import learn
-from hippo.hindsight import reward_fn
+from hippo.hippo import learn, extract_reward_fn
 
 import numpy as np
 
@@ -35,7 +34,7 @@ if __name__ == '__main__':
         nsteps=2048, 
         nbatch=2*nenvs*2048, 
         log_interval=1, 
-        reward_fn=reward_fn(env_fns[0]),
+        reward_fn=extract_reward_fn(env_fns[0]),
         buffer_capacity=2*nenvs*2048,
-        hindsight = 0.5,
+        hindsight = 0.5
         )
